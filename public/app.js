@@ -27,6 +27,8 @@ async function api(url, options = {}) {
 function notify(message, type = 'success') {
   toast.textContent = message;
   toast.className = `toast ${type} show`;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  toast.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
   clearTimeout(notify.timeout);
   notify.timeout = setTimeout(() => { toast.className = 'toast'; }, 3500);
 }
@@ -38,13 +40,23 @@ function setBusy(form, busy) {
 }
 
 function setActiveStep(step) {
-  document.querySelectorAll('.step').forEach((item) => item.classList.toggle('active', item.dataset.step === step));
-  document.querySelector('[data-step="vitals"]').classList.toggle('disabled', !state.patient);
-  document.querySelector('[data-step="assessment"]').classList.toggle('disabled', !state.vital);
+  document.querySelectorAll('.step').forEach((item) => {
+    const active = item.dataset.step === step;
+    item.classList.toggle('active', active);
+    if (active) item.setAttribute('aria-current', 'step');
+    else item.removeAttribute('aria-current');
+  });
+  const vitals = document.querySelector('[data-step="vitals"]');
+  const assessment = document.querySelector('[data-step="assessment"]');
+  [[vitals, !state.patient], [assessment, !state.vital]].forEach(([item, disabled]) => {
+    item.classList.toggle('disabled', disabled);
+    item.setAttribute('aria-disabled', String(disabled));
+    item.tabIndex = disabled ? -1 : 0;
+  });
 }
 
 function heading(kicker, title, copy = '') {
-  return `<div class="page-heading"><div><p class="kicker">${kicker}</p><h1>${title}</h1></div>${copy ? `<p>${copy}</p>` : ''}</div>`;
+  return `<div class="page-heading"><div><p class="kicker">${kicker}</p><h1 id="pageTitle" tabindex="-1">${title}</h1></div>${copy ? `<p>${copy}</p>` : ''}</div>`;
 }
 
 function patientChip() {
@@ -200,7 +212,8 @@ async function renderPatients() {
   let patients = [];
   const applySearch = () => {
     const query = search.value.trim().toLowerCase();
-    drawPatientTable(patients.filter((patient) => patient.name.toLowerCase().includes(query) || patient.patientId.toLowerCase().includes(query)));
+    const matches = patients.filter((patient) => patient.name.toLowerCase().includes(query) || patient.patientId.toLowerCase().includes(query));
+    drawPatientTable(matches, Boolean(query || visitDate.value));
   };
   const loadPatients = async () => {
     try {
@@ -219,15 +232,17 @@ async function renderPatients() {
   await loadPatients();
 }
 
-function drawPatientTable(patients) {
+function drawPatientTable(patients, filtered = false) {
   document.querySelector('.patient-count').textContent = `${patients.length} patient${patients.length === 1 ? '' : 's'}`;
   const target = document.querySelector('#patientTable');
   if (!patients.length) {
-    target.innerHTML = `<div class="empty"><div class="empty-icon">+</div><h3>No patients found</h3><p>Register a patient to begin their care journey.</p><button class="button button-primary" type="button" id="emptyNewPatient">Register patient</button></div>`;
-    document.querySelector('#emptyNewPatient').addEventListener('click', newRegistration);
+    target.innerHTML = filtered
+      ? `<div class="empty"><div class="empty-icon" aria-hidden="true">⌕</div><h3>No matching records</h3><p>Try another patient name, number, or visit date.</p></div>`
+      : `<div class="empty"><div class="empty-icon" aria-hidden="true">+</div><h3>No patients yet</h3><p>Register a patient to begin their care journey.</p><button class="button button-primary" type="button" id="emptyNewPatient">Register patient</button></div>`;
+    document.querySelector('#emptyNewPatient')?.addEventListener('click', newRegistration);
     return;
   }
-  target.innerHTML = `<table><thead><tr><th>Patient</th><th>Age</th><th>Last visit</th><th>Last BMI</th><th>Status</th><th></th></tr></thead><tbody>${patients.map((patient) => `<tr><td><div class="patient-name"><span class="avatar">${initials(patient.name)}</span><div><strong>${escapeHtml(patient.name)}</strong><small>${escapeHtml(patient.patientId)}</small></div></div></td><td>${patient.age} years</td><td>${patient.lastVisitDate ? formatDate(patient.lastVisitDate) : '—'}</td><td>${patient.lastBmi ?? '—'}</td><td><span class="status ${patient.lastBmiStatus.toLowerCase().replace(' ', '-')}">${patient.lastBmiStatus}</span></td><td><button class="table-action" type="button" data-patient="${escapeHtml(patient.patientId)}">New visit →</button></td></tr>`).join('')}</tbody></table>`;
+  target.innerHTML = `<table><caption class="sr-only">Patient records and their most recent BMI status</caption><thead><tr><th>Patient</th><th>Age</th><th>Last visit</th><th>Last BMI</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${patients.map((patient) => `<tr><td><div class="patient-name"><span class="avatar" aria-hidden="true">${initials(patient.name)}</span><div><strong>${escapeHtml(patient.name)}</strong><small>${escapeHtml(patient.patientId)}</small></div></div></td><td>${patient.age} years</td><td>${patient.lastVisitDate ? formatDate(patient.lastVisitDate) : '—'}</td><td>${patient.lastBmi ?? '—'}</td><td><span class="status ${patient.lastBmiStatus.toLowerCase().replace(' ', '-')}">${patient.lastBmiStatus}</span></td><td><button class="table-action" type="button" data-patient="${escapeHtml(patient.patientId)}" aria-label="Start a new visit for ${escapeHtml(patient.name)}">New visit →</button></td></tr>`).join('')}</tbody></table>`;
   target.querySelectorAll('[data-patient]').forEach((button) => button.addEventListener('click', () => startVisit(button.dataset.patient)));
 }
 
@@ -258,12 +273,13 @@ function formatDate(date) {
   return new Intl.DateTimeFormat('en-KE', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`));
 }
 
-function router() {
+async function router() {
   const route = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
-  if (route[0] === 'vitals') return renderVitals();
-  if (route[0] === 'assessment') return renderAssessment(route[1] || (state.vital?.bmi > 25 ? 'overweight' : 'general'));
-  if (route[0] === 'patients') return renderPatients();
-  return renderRegistration();
+  if (route[0] === 'vitals') await renderVitals();
+  else if (route[0] === 'assessment') await renderAssessment(route[1] || (state.vital?.bmi > 25 ? 'overweight' : 'general'));
+  else if (route[0] === 'patients') await renderPatients();
+  else await renderRegistration();
+  requestAnimationFrame(() => document.querySelector('#pageTitle')?.focus({ preventScroll: true }));
 }
 
 window.addEventListener('hashchange', router);

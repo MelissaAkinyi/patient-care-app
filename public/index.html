@@ -11,11 +11,12 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <div class="app-shell">
-    <aside class="sidebar">
+    <aside class="sidebar" aria-label="Patient care navigation">
       <a class="brand" href="#/register" aria-label="Afya home">
         <span class="brand-mark" aria-hidden="true">+</span>
-        <span>afya<span class="brand-dot">.</span></span>
+        <span class="brand-copy"><span>AfyaCare<span class="brand-dot">.</span></span><small>Kenya health services</small></span>
       </a>
       <p class="eyebrow">Patient workflow</p>
       <nav class="steps" aria-label="Patient workflow steps">
@@ -26,19 +27,19 @@
       </nav>
       <div class="sidebar-note">
         <span class="pulse"></span>
-        <div><strong>Care records</strong><p>Patient data is stored locally on this server.</p></div>
+        <div><strong>Ministry of Health concept</strong><p>A warm, accessible workspace for coordinated patient care.</p></div>
       </div>
     </aside>
 
-    <main>
+    <main id="main-content" tabindex="-1">
       <header class="topbar">
-        <div><span class="today-label">Today</span><strong id="todayText"></strong></div>
+        <div><span class="topbar-badge"><i aria-hidden="true"></i> Clinical workspace</span><strong id="todayText"></strong></div>
         <button class="ghost-button" id="viewPatients" type="button">View all patients <span>→</span></button>
       </header>
-      <section id="app" class="page" aria-live="polite"></section>
+      <section id="app" class="page" aria-labelledby="pageTitle"></section>
     </main>
   </div>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <script src="/app.js"></script>
 </body>
 </html>
