@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Patient registration, vitals and health assessment application">
+  <title>Afya | Patient Care</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#/register" aria-label="Afya home">
+        <span class="brand-mark" aria-hidden="true">+</span>
+        <span>afya<span class="brand-dot">.</span></span>
+      </a>
+      <p class="eyebrow">Patient workflow</p>
+      <nav class="steps" aria-label="Patient workflow steps">
+        <a class="step" data-step="register" href="#/register"><span>01</span><div><b>Registration</b><small>Patient details</small></div></a>
+        <a class="step disabled" data-step="vitals" href="#/vitals"><span>02</span><div><b>Vitals</b><small>Height &amp; weight</small></div></a>
+        <a class="step disabled" data-step="assessment" href="#/assessment"><span>03</span><div><b>Assessment</b><small>Health review</small></div></a>
+        <a class="step" data-step="patients" href="#/patients"><span>04</span><div><b>Patients</b><small>Patient records</small></div></a>
+      </nav>
+      <div class="sidebar-note">
+        <span class="pulse"></span>
+        <div><strong>Care records</strong><p>Patient data is stored locally on this server.</p></div>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div><span class="today-label">Today</span><strong id="todayText"></strong></div>
+        <button class="ghost-button" id="viewPatients" type="button">View all patients <span>→</span></button>
+      </header>
+      <section id="app" class="page" aria-live="polite"></section>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
