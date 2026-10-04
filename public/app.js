@@ -9,6 +9,7 @@ const isoToday = () => new Date().toISOString().slice(0, 10);
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 const patientName = () => state.patient ? [state.patient.firstName, state.patient.middleName, state.patient.lastName].filter(Boolean).join(' ') : '';
 const initials = (name) => name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
+const bmiLabel = (bmi) => bmi < 18.5 ? 'Underweight' : bmi < 25 ? 'Normal' : 'Overweight';
 
 document.querySelector('#todayText').textContent = new Intl.DateTimeFormat('en-KE', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
 document.querySelector('#viewPatients').addEventListener('click', () => { location.hash = '#/patients'; });
@@ -125,7 +126,7 @@ function updateBmi() {
   if (!height || !weight) { value.textContent = '—'; status.textContent = 'Enter measurements'; return; }
   const bmi = weight / ((height / 100) ** 2);
   value.textContent = bmi.toFixed(1);
-  status.textContent = bmi < 18.5 ? 'Underweight' : bmi <= 25 ? 'Normal' : 'Overweight';
+  status.textContent = bmiLabel(bmi);
 }
 
 async function submitVitals(event) {
@@ -153,7 +154,7 @@ function renderAssessment(type) {
   const question = overweight ? 'Have you ever been on a diet to lose weight? *' : 'Are you currently using any drugs? *';
   const answerName = overweight ? 'everDieted' : 'usingDrugs';
   app.innerHTML = `${heading('Final step', overweight ? 'Complete the weight assessment.' : 'Complete the general assessment.', 'This assessment is selected automatically from the patient’s latest BMI result.')}
-    <div class="summary-strip"><div><span>Patient</span><strong>${escapeHtml(patientName())}</strong></div><div><span>Visit date</span><strong>${formatDate(state.vital.visitDate)}</strong></div><div><span>BMI result</span><strong>${state.vital.bmi} · ${state.vital.bmi > 25 ? 'Overweight' : state.vital.bmi < 18.5 ? 'Underweight' : 'Normal'}</strong></div></div>
+    <div class="summary-strip"><div><span>Patient</span><strong>${escapeHtml(patientName())}</strong></div><div><span>Visit date</span><strong>${formatDate(state.vital.visitDate)}</strong></div><div><span>BMI result</span><strong>${state.vital.bmi} · ${bmiLabel(state.vital.bmi)}</strong></div></div>
     <form class="form-card" id="assessmentForm">
       <div class="card-banner"><strong>${title}</strong>${patientChip()}</div>
       <div class="form-body">
@@ -192,16 +193,30 @@ async function submitAssessment(event) {
 async function renderPatients() {
   setActiveStep('patients');
   app.innerHTML = `${heading('Patient records', 'Everyone in your care.', 'View each patient’s age and latest BMI status, or start a new visit from their record.')}
-    <div class="list-card"><div class="list-tools"><div class="search"><input id="patientSearch" type="search" placeholder="Search name or patient number…" aria-label="Search patients"></div><span class="patient-count">Loading records…</span><button class="button button-primary" id="newPatient" type="button">+ New patient</button></div><div id="patientTable"><div class="empty"><p>Loading patient records…</p></div></div></div>`;
+    <div class="list-card"><div class="list-tools"><div class="search"><input id="patientSearch" type="search" placeholder="Search name or patient number…" aria-label="Search patients"></div><div class="date-filter"><label for="visitDateFilter">Visit date</label><input id="visitDateFilter" type="date" max="${isoToday()}"><button id="clearVisitDate" type="button" aria-label="Clear visit date filter">Clear</button></div><span class="patient-count">Loading records…</span><button class="button button-primary" id="newPatient" type="button">+ New patient</button></div><div id="patientTable"><div class="empty"><p>Loading patient records…</p></div></div></div>`;
   document.querySelector('#newPatient').addEventListener('click', newRegistration);
-  try {
-    const { patients } = await api('/api/patients');
-    drawPatientTable(patients);
-    document.querySelector('#patientSearch').addEventListener('input', (event) => {
-      const query = event.target.value.trim().toLowerCase();
-      drawPatientTable(patients.filter((patient) => patient.name.toLowerCase().includes(query) || patient.patientId.toLowerCase().includes(query)));
-    });
-  } catch (error) { notify(error.message, 'error'); }
+  const search = document.querySelector('#patientSearch');
+  const visitDate = document.querySelector('#visitDateFilter');
+  let patients = [];
+  const applySearch = () => {
+    const query = search.value.trim().toLowerCase();
+    drawPatientTable(patients.filter((patient) => patient.name.toLowerCase().includes(query) || patient.patientId.toLowerCase().includes(query)));
+  };
+  const loadPatients = async () => {
+    try {
+      document.querySelector('.patient-count').textContent = 'Loading records…';
+      const query = visitDate.value ? `?visitDate=${encodeURIComponent(visitDate.value)}` : '';
+      ({ patients } = await api(`/api/patients${query}`));
+      applySearch();
+    } catch (error) { notify(error.message, 'error'); }
+  };
+  search.addEventListener('input', applySearch);
+  visitDate.addEventListener('change', loadPatients);
+  document.querySelector('#clearVisitDate').addEventListener('click', () => {
+    visitDate.value = '';
+    loadPatients();
+  });
+  await loadPatients();
 }
 
 function drawPatientTable(patients) {

@@ -101,10 +101,14 @@ textarea { min-height: 120px; resize: vertical; }
 .summary-strip strong { font: 700 13px/1.2 "Manrope", sans-serif; }
 
 .list-card { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); box-shadow: var(--shadow); }
-.list-tools { padding: 18px 22px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid var(--line); }
+.list-tools { padding: 18px 22px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .search { position: relative; flex: 1; max-width: 340px; }
 .search::before { content: "⌕"; position: absolute; left: 13px; top: 10px; color: var(--muted); font-size: 18px; }
 .search input { min-height: 40px; padding-left: 38px; background: #f7f8f5; }
+.date-filter { height: 40px; display: flex; align-items: center; overflow: hidden; border: 1px solid #cdd8d3; border-radius: 8px; background: #f7f8f5; }
+.date-filter label { padding-left: 12px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap; }
+.date-filter input { width: 142px; min-height: 38px; padding: 8px 9px; border: 0; background: transparent; box-shadow: none; font-size: 11px; }
+.date-filter button { align-self: stretch; padding: 0 11px; border: 0; border-left: 1px solid var(--line); color: var(--green); background: white; font-size: 10px; font-weight: 700; cursor: pointer; }
 .patient-count { margin-left: auto; color: var(--muted); font-size: 11px; }
 table { width: 100%; border-collapse: collapse; }
 th { padding: 14px 22px; color: #879690; background: #f6f7f3; font-size: 9px; letter-spacing: 1.1px; text-align: left; text-transform: uppercase; }
