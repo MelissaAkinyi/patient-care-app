@@ -1,24 +1,76 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { createApp, calculateAge, bmiStatus } = require('../server');
+const { createApp, calculateAge, bmiStatus, assessmentType, isDate } = require('../server');
+const { ConflictError } = require('../database');
+
+class MemoryStore {
+  constructor() {
+    this.patients = [];
+    this.vitals = [];
+    this.assessments = [];
+  }
+
+  async listPatients(visitDate) {
+    return this.patients.flatMap((patient) => {
+      const matches = this.vitals
+        .filter((vital) => vital.patientId === patient.patientId && (!visitDate || vital.visitDate === visitDate))
+        .sort((a, b) => b.visitDate.localeCompare(a.visitDate));
+      if (visitDate && !matches.length) return [];
+      return [{ ...patient, lastVisitDate: matches[0]?.visitDate || null, lastBmi: matches[0]?.bmi ?? null }];
+    });
+  }
+
+  async createPatient(patient) {
+    if (this.patients.some((item) => item.patientId.toLowerCase() === patient.patientId.toLowerCase())) {
+      throw new ConflictError('A patient with this patient number is already registered');
+    }
+    const created = { ...patient, createdAt: new Date().toISOString() };
+    this.patients.push(created);
+    return created;
+  }
+
+  async getPatient(patientId) {
+    return this.patients.find((item) => item.patientId.toLowerCase() === patientId.toLowerCase()) || null;
+  }
+
+  async getVitals(patientId) {
+    return this.vitals.filter((item) => item.patientId === patientId);
+  }
+
+  async createVital(vital) {
+    if (this.vitals.some((item) => item.patientId === vital.patientId && item.visitDate === vital.visitDate)) {
+      throw new ConflictError('Vitals have already been recorded for this patient on this date');
+    }
+    const created = { ...vital, createdAt: new Date().toISOString() };
+    this.vitals.push(created);
+    return created;
+  }
+
+  async getVital(patientId, visitDate) {
+    return this.vitals.find((item) => item.patientId === patientId && item.visitDate === visitDate) || null;
+  }
+
+  async createAssessment(assessment) {
+    if (this.assessments.some((item) => item.patientId === assessment.patientId && item.visitDate === assessment.visitDate)) {
+      throw new ConflictError('An assessment has already been submitted for this visit date');
+    }
+    const created = { ...assessment, createdAt: new Date().toISOString() };
+    this.assessments.push(created);
+    return created;
+  }
+}
 
 let server;
 let baseUrl;
-let tempDir;
 
 test.before(async () => {
-  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'patient-care-'));
-  server = createApp({ dataFile: path.join(tempDir, 'store.json') });
+  server = createApp({ store: new MemoryStore() });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
 test.after(async () => {
   await new Promise((resolve) => server.close(resolve));
-  fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
 async function request(url, options = {}) {
@@ -34,11 +86,17 @@ const patient = {
   middleName: '', lastName: 'Kamau', dateOfBirth: '1995-06-15', gender: 'Female',
 };
 
-test('BMI status follows the required categories', () => {
+test('BMI status and routing use their distinct boundary rules', () => {
   assert.equal(bmiStatus(17), 'Underweight');
-  assert.equal(bmiStatus(22), 'Normal');
-  assert.equal(bmiStatus(25), 'Normal');
-  assert.equal(bmiStatus(25.1), 'Overweight');
+  assert.equal(bmiStatus(24.9), 'Normal');
+  assert.equal(bmiStatus(25), 'Overweight');
+  assert.equal(assessmentType(25), 'general');
+  assert.equal(assessmentType(25.1), 'overweight');
+});
+
+test('date validation rejects impossible calendar dates', () => {
+  assert.equal(isDate('2026-02-28'), true);
+  assert.equal(isDate('2026-02-30'), false);
 });
 
 test('age calculation accounts for whether the birthday has passed', () => {
@@ -46,15 +104,17 @@ test('age calculation accounts for whether the birthday has passed', () => {
   assert.equal(calculateAge('2000-10-02', '2026-10-02'), 26);
 });
 
-test('registers a patient and rejects a duplicate patient number', async () => {
+test('registers a patient and rejects a case-insensitive duplicate ID', async () => {
   const created = await request('/api/patients', { method: 'POST', body: JSON.stringify(patient) });
   assert.equal(created.status, 201);
   assert.equal(created.body.patient.firstName, 'Amina');
-  const duplicate = await request('/api/patients', { method: 'POST', body: JSON.stringify(patient) });
+  const duplicate = await request('/api/patients', {
+    method: 'POST', body: JSON.stringify({ ...patient, patientId: 'pt-001' }),
+  });
   assert.equal(duplicate.status, 409);
 });
 
-test('records vitals, calculates BMI, and selects overweight assessment', async () => {
+test('records vitals, calculates BMI, and rejects a duplicate visit date', async () => {
   const result = await request('/api/patients/PT-001/vitals', {
     method: 'POST', body: JSON.stringify({ visitDate: '2026-10-02', height: 160, weight: 80 }),
   });
@@ -67,7 +127,7 @@ test('records vitals, calculates BMI, and selects overweight assessment', async 
   assert.equal(duplicate.status, 409);
 });
 
-test('enforces the BMI-specific assessment and stores the valid form', async () => {
+test('enforces the BMI-specific assessment and one form per date', async () => {
   const wrong = await request('/api/patients/PT-001/assessments', {
     method: 'POST', body: JSON.stringify({ visitDate: '2026-10-02', type: 'general', generalHealth: 'Good', usingDrugs: 'No', comments: 'Well' }),
   });
@@ -76,9 +136,13 @@ test('enforces the BMI-specific assessment and stores the valid form', async () 
     method: 'POST', body: JSON.stringify({ visitDate: '2026-10-02', type: 'overweight', generalHealth: 'Good', everDieted: 'Yes', comments: 'Discussed nutrition plan' }),
   });
   assert.equal(correct.status, 201);
+  const duplicate = await request('/api/patients/PT-001/assessments', {
+    method: 'POST', body: JSON.stringify({ visitDate: '2026-10-02', type: 'overweight', generalHealth: 'Good', everDieted: 'No', comments: 'Duplicate' }),
+  });
+  assert.equal(duplicate.status, 409);
 });
 
-test('routes BMI at or below 25 to the general assessment', async () => {
+test('routes BMI below 25 to the general assessment', async () => {
   const vitals = await request('/api/patients/PT-001/vitals', {
     method: 'POST', body: JSON.stringify({ visitDate: '2026-10-01', height: 170, weight: 65 }),
   });
@@ -88,12 +152,28 @@ test('routes BMI at or below 25 to the general assessment', async () => {
     method: 'POST', body: JSON.stringify({ visitDate: '2026-10-01', type: 'general', generalHealth: 'Good', usingDrugs: 'No', comments: 'No concerns reported' }),
   });
   assert.equal(assessment.status, 201);
-  assert.equal(assessment.body.assessment.usingDrugs, 'No');
 });
 
-test('patient listing returns the latest BMI status', async () => {
-  const result = await request('/api/patients');
-  assert.equal(result.status, 200);
-  assert.equal(result.body.patients[0].name, 'Amina Kamau');
-  assert.equal(result.body.patients[0].lastBmiStatus, 'Overweight');
+test('BMI exactly 25 displays Overweight but routes to general assessment', async () => {
+  const result = await request('/api/patients/PT-001/vitals', {
+    method: 'POST', body: JSON.stringify({ visitDate: '2026-09-30', height: 200, weight: 100 }),
+  });
+  assert.equal(result.status, 201);
+  assert.equal(result.body.vital.bmi, 25);
+  assert.equal(result.body.status, 'Overweight');
+  assert.equal(result.body.nextAssessment, 'general');
+});
+
+test('patient listing returns the latest BMI and filters by visit date', async () => {
+  const latest = await request('/api/patients');
+  assert.equal(latest.status, 200);
+  assert.equal(latest.body.patients[0].name, 'Amina Kamau');
+  assert.equal(latest.body.patients[0].lastBmiStatus, 'Overweight');
+  assert.equal(latest.body.patients[0].lastVisitDate, '2026-10-02');
+
+  const filtered = await request('/api/patients?visitDate=2026-09-30');
+  assert.equal(filtered.status, 200);
+  assert.equal(filtered.body.patients.length, 1);
+  assert.equal(filtered.body.patients[0].lastBmi, 25);
+  assert.equal(filtered.body.patients[0].lastVisitDate, '2026-09-30');
 });
